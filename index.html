@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Value of Water in Our Hands</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+<style>
+  body { margin: 0; font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; }
+  @keyframes drift { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+  @keyframes rise { 0% { transform: translateY(0); opacity: .8 } 100% { transform: translateY(-120px); opacity: 0 } }
+  @keyframes fall { 0% { transform: translateY(0); opacity: 0 } 15% { opacity: 1 } 100% { transform: translateY(150px); opacity: 0 } }
+  @keyframes flow { from { stroke-dashoffset: 0 } to { stroke-dashoffset: -14 } }
+  .wave { animation: drift 4s linear infinite }
+  .bubble { animation: rise 3.5s ease-in infinite }
+  .drop { animation: fall .8s linear infinite }
+  .stream { animation: flow .35s linear infinite }
+  @media (prefers-reduced-motion: reduce) { .wave, .bubble, .drop, .stream { animation: none } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const PEOPLE = 5;
+const RESERVE = 1000;
+const DEFAULTS = { shower: 10, tap: 3, toilet: 7 };
+
+/* ---------- Icons (inline SVG, lucide style) ---------- */
+const Svg = ({ size = 24, children }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
+);
+const ShowerIcon = (p) => (<Svg {...p}><path d="M4 4l2.5 2.5" /><path d="M13.5 6.5a4.95 4.95 0 0 0-7 7" /><path d="M15 5L5 15" /><path d="M14 17v.01M10 16v.01M13 13v.01M16 10v.01M11 20v.01M17 14v.01M20 11v.01" /></Svg>);
+const DropIcon = (p) => (<Svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" /></Svg>);
+const ToiletIcon = (p) => (<Svg {...p}><path d="M7 3h10v6H7z" /><path d="M4 11h16c0 5-3 8-6 8h-4c-3 0-6-3-6-8z" /><path d="M9 21h6" /></Svg>);
+const UsersIcon = (p) => (<Svg {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></Svg>);
+const ResetIcon = (p) => (<Svg {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></Svg>);
+
+const HABITS = [
+  { key: "shower", label: "Shower", hint: "Liters you use to wash", min: 2, max: 15, Icon: ShowerIcon, color: "#0ea5e9" },
+  { key: "tap", label: "Tap", hint: "Brushing teeth and washing hands", min: 1, max: 5, Icon: DropIcon, color: "#14b8a6" },
+  { key: "toilet", label: "Toilet flushes", hint: "Liters used by flushing each day", min: 3, max: 10, Icon: ToiletIcon, color: "#6366f1" },
+];
+
+function getStatus(days) {
+  if (days >= 25) return { name: "ok", water: "#38bdf8", deep: "#0284c7", bg: "from-sky-100 to-cyan-50", text: "text-sky-700", badge: "bg-sky-500", msg: "Great job! The reserve is safe. Keep it up!" };
+  if (days >= 15) return { name: "warn", water: "#facc15", deep: "#ca8a04", bg: "from-yellow-100 to-amber-50", text: "text-yellow-700", badge: "bg-yellow-500", msg: "Careful! A few less drops would make the water last longer." };
+  return { name: "bad", water: "#f87171", deep: "#dc2626", bg: "from-red-100 to-orange-50", text: "text-red-700", badge: "bg-red-500", msg: "Alarm! The reserve is emptying too fast. Save water!" };
+}
+
+function useAnimatedNumber(target) {
+  const [value, setValue] = useState(target);
+  const current = useRef(target);
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      const diff = target - current.current;
+      if (Math.abs(diff) < 0.05) { current.current = target; setValue(target); return; }
+      current.current += diff * 0.18;
+      setValue(current.current);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
+  return value;
+}
+
+/* ---------- Water tank ---------- */
+function Tank({ days, status }) {
+  const maxDays = RESERVE / (6 * PEOPLE);
+  const level = Math.max(12, Math.min(100, (days / maxDays) * 100));
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative h-80 w-48 sm:h-[26rem] sm:w-56 overflow-hidden rounded-b-[2.5rem] rounded-t-2xl border-8 border-slate-300 bg-white/70 shadow-inner">
+        <div className="absolute bottom-0 left-0 w-full transition-all duration-700 ease-out"
+             style={{ height: `${level}%`, background: `linear-gradient(to bottom, ${status.water}, ${status.deep})` }}>
+          <svg className="wave absolute -top-4 left-0 h-5 w-[200%]" viewBox="0 0 400 20" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0 10 Q 25 0 50 10 T 100 10 T 150 10 T 200 10 T 250 10 T 300 10 T 350 10 T 400 10 V20 H0 Z" fill={status.water} />
+          </svg>
+          <span className="bubble absolute bottom-4 left-6 h-3 w-3 rounded-full bg-white/50" />
+          <span className="bubble absolute bottom-2 left-24 h-2 w-2 rounded-full bg-white/50" style={{ animationDelay: "1.2s" }} />
+          <span className="bubble absolute bottom-6 right-8 h-4 w-4 rounded-full bg-white/40" style={{ animationDelay: "2.1s" }} />
+        </div>
+        {[25, 50, 75].map((p) => (<div key={p} className="absolute right-0 h-0.5 w-4 bg-slate-400/60" style={{ bottom: `${p}%` }} />))}
+        <div className="absolute inset-x-0 top-3 text-center text-sm font-bold text-slate-500">Reserve</div>
+      </div>
+      <div className="mt-2 h-3 w-60 rounded-full bg-slate-300 sm:w-72" />
+      <p className="mt-3 text-center text-sm font-semibold text-slate-600">{RESERVE.toLocaleString("en-US")} liters for {PEOPLE} people</p>
+    </div>
+  );
+}
+
+/* ---------- Bathroom scene: child showering, tap and toilet react to the sliders ---------- */
+function Scene({ vals, status }) {
+  const dropCount = vals.shower * 3;
+  const dur = Math.max(0.45, 0.95 - vals.shower * 0.03);
+  const spread = 14 + vals.shower * 1.6;
+  const puddle = 22 + vals.shower * 5;
+  const streamW = 1.5 + vals.tap * 1.7;
+  const tankFill = (vals.toilet / 10) * 64;
+  const mouth = status.name === "ok" ? "M188 126 Q200 138 212 126" : status.name === "warn" ? "M190 130 L210 130" : "M190 133 Q200 123 210 133";
+  const say = status.name === "ok" ? "Ahh, a quick shower!" : status.name === "warn" ? "Hmm... a bit long." : "Whoa, so much water!";
+  const drops = Array.from({ length: dropCount }, (_, i) => {
+    const f = ((i * 37) % 100) / 100 - 0.5;
+    return { x: 200 + f * spread * 2, delay: -((i * 0.173) % dur), key: i };
+  });
+  return (
+    <svg viewBox="0 0 420 250" className="w-full" role="img" aria-label="A child showering. The water flow changes with your choices.">
+      <rect x="0" y="0" width="420" height="250" rx="20" fill="#e0f2fe" />
+      {[0, 1, 2, 3, 4, 5, 6].map((r) => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((c) => (
+        <rect key={r + "-" + c} x={c * 30 + 1} y={r * 30 + 1} width="28" height="28" fill="#f0f9ff" opacity="0.7" />
+      )))}
+      <rect x="0" y="212" width="420" height="38" fill="#cbd5e1" />
+
+      {/* toilet */}
+      <rect x="20" y="70" width="64" height="70" rx="8" fill="#fff" stroke="#94a3b8" strokeWidth="3" />
+      <rect x="26" y={136 - tankFill} width="52" height={tankFill} rx="3" fill="#6366f1" opacity="0.55" style={{ transition: "all .5s" }} />
+      <circle cx="90" cy="82" r="6" fill="#94a3b8" />
+      <path d="M12 150 H92 C92 190 78 208 56 208 C34 208 20 190 12 150 Z" fill="#fff" stroke="#94a3b8" strokeWidth="3" />
+      <text x="52" y="236" textAnchor="middle" fontSize="13" fontWeight="700" fill="#475569">{vals.toilet} L</text>
+
+      {/* shower head and pipe */}
+      <path d="M200 0 V22" stroke="#64748b" strokeWidth="6" />
+      <path d="M168 40 Q200 14 232 40 Z" fill="#94a3b8" stroke="#64748b" strokeWidth="3" />
+      {drops.map((d) => (
+        <ellipse key={d.key} className="drop" cx={d.x} cy="46" rx="1.6" ry="3.6" fill="#38bdf8"
+                 style={{ animationDuration: dur + "s", animationDelay: d.delay + "s" }} />
+      ))}
+
+      {/* puddle */}
+      <ellipse cx="200" cy="214" rx={puddle} ry="7" fill="#38bdf8" opacity="0.6" style={{ transition: "all .4s" }} />
+
+      {/* child */}
+      <rect x="178" y="146" width="44" height="66" rx="18" fill="#fbbf8a" />
+      <path d="M178 150 Q160 140 164 122" stroke="#fbbf8a" strokeWidth="9" strokeLinecap="round" fill="none" />
+      <path d="M222 150 Q240 140 236 122" stroke="#fbbf8a" strokeWidth="9" strokeLinecap="round" fill="none" />
+      <circle cx="200" cy="116" r="24" fill="#fbbf8a" />
+      <path d="M176 112 Q178 88 200 88 Q222 88 224 112 Q212 100 200 102 Q188 100 176 112 Z" fill="#7c4a2a" />
+      {[[186, 90, 6], [200, 85, 7], [214, 90, 6], [194, 96, 4]].map(([x, y, r], i) => (<circle key={i} cx={x} cy={y} r={r} fill="#fff" opacity="0.9" />))}
+      <circle cx="191" cy="114" r="2.6" fill="#1e293b" />
+      <circle cx="209" cy="114" r="2.6" fill="#1e293b" />
+      <path d={mouth} stroke="#1e293b" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      {status.name === "bad" && <path d="M222 100 q4 7 0 10 q-4 -3 0 -10z" fill="#38bdf8" />}
+      <rect x="150" y="212" width="100" height="0" />
+      <text x="200" y="236" textAnchor="middle" fontSize="13" fontWeight="700" fill="#475569">{vals.shower} L</text>
+
+      {/* speech bubble */}
+      <g>
+        <rect x="236" y="38" width="130" height="30" rx="14" fill="#fff" stroke="#bae6fd" strokeWidth="2" />
+        <text x="301" y="58" textAnchor="middle" fontSize="12" fontWeight="700" fill="#0369a1">{say}</text>
+      </g>
+
+      {/* sink + tap */}
+      <path d="M318 112 H352 Q362 112 362 122 V128" stroke="#64748b" strokeWidth="7" fill="none" strokeLinecap="round" />
+      <line x1="362" y1="132" x2="362" y2="170" stroke="#38bdf8" strokeWidth={streamW} strokeDasharray="8 6" className="stream" style={{ transition: "stroke-width .3s" }} />
+      <path d="M326 168 H398 C398 196 386 210 362 210 C338 210 326 196 326 168 Z" fill="#fff" stroke="#94a3b8" strokeWidth="3" />
+      <text x="362" y="236" textAnchor="middle" fontSize="13" fontWeight="700" fill="#475569">{vals.tap} L</text>
+    </svg>
+  );
+}
+
+/* ---------- App ---------- */
+function App() {
+  const [vals, setVals] = useState(DEFAULTS);
+  const personal = vals.shower + vals.tap + vals.toilet;
+  const community = personal * PEOPLE;
+  const days = RESERVE / community;
+  const status = getStatus(Math.floor(days));
+  const shown = useAnimatedNumber(days);
+  const saved = (DEFAULTS.shower + DEFAULTS.tap + DEFAULTS.toilet - personal) * PEOPLE;
+
+  return (
+    <div className={`min-h-screen bg-gradient-to-br ${status.bg} p-4 transition-colors duration-700 sm:p-8`}>
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-6 text-center">
+          <h1 className="text-3xl font-black text-slate-800 sm:text-4xl">The Value of Water in Our Hands</h1>
+          <p className="mx-auto mt-2 max-w-xl text-base text-slate-600">
+            Every day, 5 people share the same water reserve. Move the sliders and see how your habits make a difference!
+          </p>
+        </header>
+
+        <div className="grid gap-6 lg:grid-cols-[auto_1fr] lg:items-start">
+          <section className="flex justify-center rounded-3xl bg-white/80 p-6 shadow-lg" aria-label="Water tank">
+            <Tank days={Math.floor(days)} status={status} />
+          </section>
+
+          <div className="space-y-6">
+            <section className="rounded-3xl bg-white p-6 text-center shadow-lg" aria-live="polite">
+              <p className="text-lg font-bold text-slate-500">Days Remaining</p>
+              <p className={`text-8xl font-black leading-none tabular-nums sm:text-9xl ${status.text}`}>{Math.floor(shown)}</p>
+              <p className="mt-1 text-xl font-bold text-slate-600">days of water for everyone</p>
+              <p className={`mx-auto mt-4 inline-block rounded-full px-5 py-2 text-sm font-bold text-white ${status.badge}`}>{status.msg}</p>
+            </section>
+
+            <section className="rounded-3xl bg-white p-4 shadow-lg">
+              <Scene vals={vals} status={status} />
+            </section>
+
+            <section className="grid grid-cols-2 gap-4">
+              <div className="rounded-3xl bg-white p-5 text-center shadow-lg">
+                <p className="text-sm font-bold text-slate-500">Your Use</p>
+                <p className="text-5xl font-black text-slate-800 tabular-nums">{personal}</p>
+                <p className="text-sm font-semibold text-slate-500">liters per day</p>
+              </div>
+              <div className="rounded-3xl bg-white p-5 text-center shadow-lg">
+                <p className="flex items-center justify-center gap-1 text-sm font-bold text-slate-500"><UsersIcon size={16} /> Community Use</p>
+                <p className="text-5xl font-black text-slate-800 tabular-nums">{community}</p>
+                <p className="text-sm font-semibold text-slate-500">liters per day ({personal} × {PEOPLE})</p>
+              </div>
+            </section>
+
+            <section className="space-y-5 rounded-3xl bg-white p-6 shadow-lg">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-black text-slate-800">Your habits</h2>
+                <button onClick={() => setVals(DEFAULTS)}
+                  className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-300">
+                  <ResetIcon size={14} /> Start over
+                </button>
+              </div>
+              {HABITS.map(({ key, label, hint, min, max, Icon, color }) => (
+                <div key={key}>
+                  <div className="mb-1 flex items-center gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white" style={{ background: color }}><Icon size={28} /></span>
+                    <div className="flex-1">
+                      <label htmlFor={key} className="block text-lg font-extrabold text-slate-800">{label}</label>
+                      <p className="text-sm text-slate-500">{hint}</p>
+                    </div>
+                    <span className="text-3xl font-black tabular-nums" style={{ color }}>{vals[key]}<span className="ml-1 text-base font-bold">L</span></span>
+                  </div>
+                  <input id={key} type="range" min={min} max={max} step={1} value={vals[key]}
+                    onChange={(e) => setVals({ ...vals, [key]: Number(e.target.value) })}
+                    className="h-3 w-full cursor-pointer" style={{ accentColor: color }} />
+                  <div className="flex justify-between text-xs font-semibold text-slate-400"><span>{min} L (saving)</span><span>{max} L</span></div>
+                </div>
+              ))}
+            </section>
+
+            {saved > 0 && (
+              <p className="rounded-2xl bg-emerald-100 p-4 text-center font-bold text-emerald-800">
+                Well done! Compared to before, your community saves {saved} liters every day.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
